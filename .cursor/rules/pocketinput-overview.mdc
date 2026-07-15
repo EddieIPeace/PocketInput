@@ -1,0 +1,71 @@
+---
+description: PocketInput 项目总览与架构约定（每会话自动注入）
+alwaysApply: true
+---
+
+# PocketInput
+
+用 iOS 设备当鼠标/键盘，远程控制 Mac 的双端 App。
+
+## 产品目标
+
+- **iOS（控制器）**：触控板手势、点击、滚轮、虚拟键盘/快捷键；发现并连接附近的 Mac；发送输入事件。
+- **macOS（被控端）**：局域网可发现；接收事件；用系统 API 注入鼠标/键盘（需辅助功能权限）。
+
+## 当前进度（MVP 已落地）
+
+已实现：Bonjour 发现 → Mac 确认接受 → TCP NDJSON 传 `move` / `click` → `CGEvent` 注入。
+
+未做：滚轮、键盘、UDP 分通道、多指手势、后台保活、PIN 配对。
+
+## 仓库结构
+
+```
+PocketInput/
+├── Packages/PocketInputKit/  # 共享协议（SPM 本地包）
+├── PocketInput-iOS/          # iOS 控制器
+│   ├── Networking/           # BrowserService, ControllerClient
+│   ├── Trackpad/             # TrackpadView
+│   └── ContentView.swift
+├── PocketInput-macOS/        # macOS 被控端
+│   ├── Networking/HostServer.swift
+│   ├── Input/InputInjector.swift
+│   ├── Accessibility/AccessibilityGate.swift
+│   └── ContentView.swift
+└── PocketInput.xcodeproj/
+```
+
+## 协议 v1
+
+- 服务类型：`_pocketinput._tcp`
+- 传输：单一 TCP + NDJSON（一行一帧 JSON，`\n` 结尾）
+- 共享类型：`WireMessage` / `InputEvent` / `ControlMessage`（见 `PocketInputKit`）
+- 握手：`hello` → `acceptRequest` → Mac 点接受 → `accepted`；拒绝则 `rejected`
+- 输入：`move(dx,dy)`（相对位移）、`click(button, phase)`（MVP 用 `tap`）
+
+## 技术栈与方向
+
+- 语言：Swift；UI：SwiftUI
+- 发现/连接：Bonjour + Network.framework（`NWBrowser` / `NWListener` / `NWConnection`）
+- Mac 输入注入：`CGEvent`；启动时引导「辅助功能」权限
+- 后续可把指针移动改为 UDP；控制/配对保持可靠通道
+
+## 架构约定
+
+1. **协议先行**：事件与帧格式改动优先改 `PocketInputKit`，再改两端。
+2. **端职责清晰**：iOS 只采集与发送；macOS 只接收与注入。
+3. **权限与隐私**：macOS 必须处理辅助功能未授权（UI 提示 + 打开系统设置）。
+4. **安全默认**：同局域网发现；Mac 确认连接后再接受输入。
+5. **Info.plist**：两端已声明 `NSLocalNetworkUsageDescription` 与 `NSBonjourServices`（`_pocketinput._tcp`）；macOS 需网络 sandbox entitlements。
+
+## 开发约定
+
+- 回复用户使用中文。
+- 改动保持小而专注；匹配现有 Swift / SwiftUI 风格；不做无关重构。
+- 未明确要求时不要创建 Markdown 文档；项目上下文写在 `.cursor/rules/`。
+- 未明确要求时不要 git commit / push。
+- 涉及系统权限、网络、后台模式时，同步更新对应 target 的 Info.plist / entitlements / Signing。
+
+## 对 Agent 的提示
+
+新会话默认已知：这是「iOS 控 Mac 键鼠」项目；MVP（发现/确认/移动/点击）已实现。继续开发时先对齐 `PocketInputKit` 与两端 Networking，再改代码；不要再次向用户复述整份产品说明，除非被问到。
